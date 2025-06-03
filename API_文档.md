@@ -242,12 +242,41 @@ API 服务使用信号量机制限制并发处理的 PDF 文件数量，默认�
 4. **数学公式**: 支持识别和转换数学公式，转换后的格式为 LaTeX 格式
 5. **多语言支持**: 支持 90+ 种语言的文本识别
 
+## 测试脚本使用
+
+项目包含一个测试脚本 `test_pdf_api.py`，可用于快速测试 API 功能。使用方法如下：
+
+```bash
+python test_pdf_api.py --pdf /path/to/your/document.pdf --url http://server-address:port --api-key your_api_key_here --output output.md
+```
+
+参数说明：
+
+| 参数 | 描述 | 是否必需 |
+|--------|------|--------|
+| `--pdf` | PDF 文件路径 | 是 |
+| `--url` | API 服务地址，默认为 http://localhost:8000 | 否 |
+| `--api-key` | API 密钥 | 是 |
+| `--output` | 输出 Markdown 文件路径，如不指定则直接打印到控制台 | 否 |
+| `--timeout` | 等待转换完成的超时时间（秒），默认 300 秒 | 否 |
+| `--interval` | 检查转换状态的间隔时间（秒），默认 5 秒 | 否 |
+
+### 示例
+
+```bash
+# 远程服务器测试
+python test_pdf_api.py --pdf tests/法律Agent测试用例.pdf --url http://159.54.182.15:8080 --api-key pgMePwetA3zidEixgzieOCrKHwGRps61cqufII_VJmY --output 法律Agent测试结果.md
+
+# 本地测试
+python test_pdf_api.py --pdf tests/法律Agent测试用例.pdf --url http://localhost:8000 --api-key your_local_api_key --output 法律Agent测试结果.md
+```
+
 ## 服务器状态
 
 如果您需要检查 API 服务器的状态，可以访问 API 文档页面：
 
 ```
-http://159.54.182.15:8000/docs
+http://159.54.182.15:8080/docs
 ```
 
 此页面提供了 API 的交互式文档，您可以直接在浏览器中测试 API 功能。
