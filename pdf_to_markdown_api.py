@@ -71,6 +71,10 @@ class ConversionResult(BaseModel):
     error: Optional[str] = None
 
 
+class UrlConvertRequest(BaseModel):
+    url: str
+
+
 def replace_fences(text):
     """替换数学公式标记为Markdown格式"""
     text = re.sub(r'<math display="block">(.*?)</math>', r"$$\1$$", text)
@@ -190,6 +194,47 @@ async def convert_pdf_to_markdown(
     background_tasks.add_task(process_pdf, task_id, pdf_bytes)
     
     return ConversionResult(task_id=task_id, status="processing")
+
+
+@app.post("/convert-url", response_model=ConversionResult)
+async def convert_pdf_from_url(
+    request: UrlConvertRequest,
+    api_key: str = Depends(get_api_key),
+):
+    """
+    通过URL下载PDF文件并转换为Markdown格式
+    
+    - **url**: PDF文件的URL
+    
+    返回任务ID，可以用于检查转换状态和获取结果
+    """
+    try:
+        # 下载PDF文件
+        response = requests.get(request.url, stream=True, timeout=30)
+        response.raise_for_status()  # 确保请求成功
+        
+        # 检查内容类型
+        content_type = response.headers.get("Content-Type", "")
+        if "application/pdf" not in content_type.lower() and not request.url.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="URL不指向PDF文件")
+        
+        # 读取文件内容
+        pdf_bytes = response.content
+        
+        # 生成任务ID
+        task_id = f"task_{len(tasks) + 1}"
+        
+        # 初始化任务状态
+        tasks[task_id] = {"status": "processing", "markdown": None, "error": None}
+        
+        # 在后台异步处理PDF
+        asyncio.create_task(process_pdf(task_id, pdf_bytes))
+        
+        return ConversionResult(task_id=task_id, status="processing")
+    except requests.RequestException as e:
+        raise HTTPException(status_code=400, detail=f"下载PDF文件失败: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"处理PDF文件时出错: {str(e)}")
 
 
 @app.get("/status/{task_id}", response_model=ConversionResult)

@@ -78,14 +78,69 @@ curl -X POST -F "file=@文件路径.pdf" -H "X-API-Key: your_api_key_here" http:
 ```python
 import requests
 
-url = "http://159.54.182.15:8000/convert"
+url = "http://159.54.182.15:8080/convert"
 headers = {"X-API-Key": "your_api_key_here"}
 files = {"file": open("文件路径.pdf", "rb")}
 response = requests.post(url, files=files, headers=headers)
 print(response.json())
 ```
 
-### 2. 查询转换状态
+### 2. 通过 URL 转换 PDF 到 Markdown
+
+通过提供 PDF 文件的 URL 地址，自动下载并转换为 Markdown。
+
+- **URL**: `/convert-url`
+- **方法**: `POST`
+- **内容类型**: `application/json`
+
+#### 请求参数
+
+```json
+{
+  "url": "https://example.com/document.pdf"
+}
+```
+
+| 参数名 | 类型 | 必填 | 描述 |
+|-------|------|------|------|
+| url  | 字符串 | 是   | PDF 文件的 URL 地址 |
+
+#### 响应
+
+```json
+{
+  "task_id": "task_1",
+  "status": "processing"
+}
+```
+
+| 字段名   | 类型   | 描述 |
+|---------|-------|------|
+| task_id | 字符串 | 任务 ID，用于后续查询转换状态 |
+| status  | 字符串 | 任务状态，初始为 "processing" |
+
+#### 示例
+
+**cURL**:
+```bash
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: your_api_key_here" -d '{"url":"https://example.com/document.pdf"}' http://159.54.182.15:8080/convert-url
+```
+
+**Python**:
+```python
+import requests
+
+url = "http://159.54.182.15:8080/convert-url"
+headers = {
+    "X-API-Key": "your_api_key_here",
+    "Content-Type": "application/json"
+}
+data = {"url": "https://example.com/document.pdf"}
+response = requests.post(url, json=data, headers=headers)
+print(response.json())
+```
+
+### 3. 查询转换状态
 
 查询 PDF 到 Markdown 转换任务的状态和结果。
 
