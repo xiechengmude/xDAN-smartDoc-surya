@@ -1,10 +1,11 @@
-import asyncio
 import argparse
+import asyncio
 import io
 import os
 import re
 import secrets
 from typing import List, Optional, Dict
+import requests
 
 import pypdfium2
 from fastapi import FastAPI, File, UploadFile, BackgroundTasks, HTTPException, Depends, Header, Security
