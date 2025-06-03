@@ -2,11 +2,13 @@ import asyncio
 import io
 import os
 import re
-from typing import List, Optional
+import secrets
+from typing import List, Optional, Dict
 
 import pypdfium2
-from fastapi import FastAPI, File, UploadFile, BackgroundTasks, HTTPException
+from fastapi import FastAPI, File, UploadFile, BackgroundTasks, HTTPException, Depends, Header, Security
 from fastapi.responses import JSONResponse
+from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
 import uvicorn
 
@@ -18,13 +20,37 @@ from surya.settings import settings
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 app = FastAPI(
-    title="PDF to Markdown API",
-    description="高性能异步的 PDF 到 Markdown 转换服务，基于 Surya OCR",
-    version="0.1.0",
+    title="xDAN Smart API",
+    description="高性能异步的 PDF 到 Markdown 转换服务，基于 xDAN Smart OCR",
+    version="1.0.0",
 )
 
 # 全局变量存储预加载的模型
 predictors = None
+
+# API 密钥验证
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+# 存储有效的 API 密钥
+API_KEYS: Dict[str, str] = {}
+
+# 生成新的 API 密钥
+def generate_api_key(key_name: str) -> str:
+    """生成新的 API 密钥并存储"""
+    api_key = secrets.token_urlsafe(32)
+    API_KEYS[api_key] = key_name
+    return api_key
+
+# 验证 API 密钥
+async def get_api_key(api_key_header: str = Security(api_key_header)):
+    """验证 API 密钥是否有效"""
+    if api_key_header in API_KEYS:
+        return api_key_header
+    raise HTTPException(
+        status_code=403, 
+        detail="无效的 API 密钥。请提供有效的 X-API-Key 头部。"
+    )
 
 
 class ConversionResult(BaseModel):
@@ -121,12 +147,17 @@ async def startup_event():
     """启动时加载模型"""
     global predictors
     predictors = load_predictors()
+    
+    # 创建默认 API 密钥
+    default_key = generate_api_key("default")
+    print(f"\n默认 API 密钥已生成: {default_key}\n")
 
 
 @app.post("/convert", response_model=ConversionResult)
 async def convert_pdf_to_markdown(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    api_key: str = Depends(get_api_key),
 ):
     """
     将PDF文件转换为Markdown格式
@@ -157,7 +188,10 @@ async def convert_pdf_to_markdown(
 
 
 @app.get("/status/{task_id}", response_model=ConversionResult)
-async def get_conversion_status(task_id: str):
+async def get_conversion_status(
+    task_id: str,
+    api_key: str = Depends(get_api_key),
+):
     """
     获取转换任务的状态
     
@@ -182,6 +216,37 @@ async def get_conversion_status(task_id: str):
     
     return response
 
+
+# API 密钥管理端点
+class ApiKeyRequest(BaseModel):
+    key_name: str
+
+class ApiKeyResponse(BaseModel):
+    key_name: str
+    api_key: str
+
+@app.post("/admin/generate-key", response_model=ApiKeyResponse)
+async def generate_new_api_key(
+    request: ApiKeyRequest,
+    admin_key: str = Header(..., description="管理员密钥，用于生成新的 API 密钥")
+):
+    """生成新的 API 密钥（需要管理员密钥）"""
+    # 这里使用一个简单的管理员密钥，实际应用中应该使用更安全的认证方式
+    if admin_key != "xdan-admin-secret":
+        raise HTTPException(status_code=403, detail="无效的管理员密钥")
+    
+    api_key = generate_api_key(request.key_name)
+    return ApiKeyResponse(key_name=request.key_name, api_key=api_key)
+
+@app.get("/admin/list-keys")
+async def list_api_keys(
+    admin_key: str = Header(..., description="管理员密钥，用于列出所有 API 密钥")
+):
+    """列出所有 API 密钥（需要管理员密钥）"""
+    if admin_key != "xdan-admin-secret":
+        raise HTTPException(status_code=403, detail="无效的管理员密钥")
+    
+    return {key: name for key, name in API_KEYS.items()}
 
 if __name__ == "__main__":
     uvicorn.run("pdf_to_markdown_api:app", host="0.0.0.0", port=8000, reload=True)
