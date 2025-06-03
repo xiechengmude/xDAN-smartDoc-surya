@@ -19,6 +19,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='测试 PDF 到 Markdown 转换 API')
     parser.add_argument('--pdf', type=str, required=True, help='PDF 文件路径')
     parser.add_argument('--url', type=str, default='http://localhost:8000', help='API 服务地址')
+    parser.add_argument('--api-key', type=str, required=True, help='API 密钥')
     parser.add_argument('--output', type=str, help='输出 Markdown 文件路径')
     parser.add_argument('--timeout', type=int, default=300, help='等待转换完成的超时时间（秒）')
     parser.add_argument('--interval', type=int, default=5, help='检查转换状态的间隔时间（秒）')
@@ -26,7 +27,7 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def upload_pdf(api_url, pdf_path):
+def upload_pdf(api_url, pdf_path, api_key):
     """上传 PDF 文件到 API 服务"""
     print(f"正在上传 PDF 文件: {pdf_path}")
     
@@ -37,7 +38,8 @@ def upload_pdf(api_url, pdf_path):
     try:
         with open(pdf_path, 'rb') as pdf_file:
             files = {'file': (os.path.basename(pdf_path), pdf_file, 'application/pdf')}
-            response = requests.post(f"{api_url}/convert", files=files)
+            headers = {'X-API-Key': api_key}
+            response = requests.post(f"{api_url}/convert", files=files, headers=headers)
             
             if response.status_code != 200:
                 print(f"错误: API 请求失败，状态码: {response.status_code}")
@@ -53,14 +55,15 @@ def upload_pdf(api_url, pdf_path):
         sys.exit(1)
 
 
-def check_conversion_status(api_url, task_id, timeout=300, interval=5):
+def check_conversion_status(api_url, task_id, api_key, timeout=300, interval=5):
     """检查转换任务状态"""
     print(f"正在等待转换完成，任务 ID: {task_id}")
     
     elapsed_time = 0
     while elapsed_time < timeout:
         try:
-            response = requests.get(f"{api_url}/status/{task_id}")
+            headers = {'X-API-Key': api_key}
+            response = requests.get(f"{api_url}/status/{task_id}", headers=headers)
             
             if response.status_code != 200:
                 print(f"错误: 获取任务状态失败，状态码: {response.status_code}")
@@ -114,10 +117,10 @@ def main():
     args = parse_arguments()
     
     # 上传 PDF 文件
-    task_id = upload_pdf(args.url, args.pdf)
+    task_id = upload_pdf(args.url, args.pdf, args.api_key)
     
     # 检查转换状态
-    markdown_text = check_conversion_status(args.url, task_id, args.timeout, args.interval)
+    markdown_text = check_conversion_status(args.url, task_id, args.api_key, args.timeout, args.interval)
     
     # 保存 Markdown 内容
     save_markdown(markdown_text, args.output)
