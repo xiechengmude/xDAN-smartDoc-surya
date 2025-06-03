@@ -1,4 +1,5 @@
 import asyncio
+import argparse
 import io
 import os
 import re
@@ -27,6 +28,15 @@ app = FastAPI(
 
 # 全局变量存储预加载的模型
 predictors = None
+
+# 全局变量存储任务状态
+tasks = {}
+
+# 最大并发数（默认为 5，可通过命令行参数修改）
+MAX_CONCURRENT_TASKS = 5
+
+# 信号量用于限制并发任务数
+task_semaphore = None
 
 # API 密钥验证
 API_KEY_NAME = "X-API-Key"
@@ -61,10 +71,6 @@ class ConversionResult(BaseModel):
     error: Optional[str] = None
 
 
-# 存储后台任务的结果
-conversion_results = {}
-
-
 def replace_fences(text):
     """替换数学公式标记为Markdown格式"""
     text = re.sub(r'<math display="block">(.*?)</math>', r"$$\1$$", text)
@@ -90,67 +96,68 @@ def get_page_image(pdf_doc, page_num, dpi=settings.IMAGE_DPI_HIGHRES):
     return png.convert("RGB")
 
 
-async def process_pdf(pdf_bytes: bytes, task_id: str):
-    """处理PDF文件并转换为Markdown"""
-    try:
-        # 打开PDF文件
-        doc = open_pdf(pdf_bytes)
-        page_count = len(doc)
-        
-        # 存储所有页面的文本
-        all_text = []
-        
-        # 处理每一页
-        for page_num in range(page_count):
-            # 获取页面图像
-            pil_image = get_page_image(doc, page_num)
+async def process_pdf(task_id: str, pdf_bytes: bytes):
+    """异步处理PDF文件并转换为Markdown"""
+    # 使用信号量限制并发任务数
+    async with task_semaphore:
+        try:
+            # 更新任务状态为处理中
+            tasks[task_id] = {"status": "processing", "markdown": None, "error": None}
             
-            # 使用OCR识别文本
-            img_pred = predictors["recognition"](
-                [pil_image],
-                task_names=[TaskNames.ocr_with_boxes],
-                det_predictor=predictors["detection"],
-                highres_images=[pil_image],
-                math_mode=True,
-                return_words=True,
-            )[0]
+            # 使用pypdfium2加载PDF文件
+            pdf = pypdfium2.PdfDocument(pdf_bytes)
+            page_count = len(pdf)
             
-            # 提取文本行
-            page_text = "\n\n".join([replace_fences(line.text) for line in img_pred.text_lines])
+            # 存储所有页面的Markdown内容
+            all_markdown = []
             
-            # 添加页码标记
-            page_header = f"\n\n## 第 {page_num + 1} 页\n\n"
-            all_text.append(page_header + page_text)
-        
-        # 关闭PDF文档
-        doc.close()
-        
-        # 合并所有文本
-        markdown_text = "\n".join(all_text)
-        
-        # 存储结果
-        conversion_results[task_id] = {
-            "status": "completed",
-            "markdown": markdown_text
-        }
-        
-    except Exception as e:
-        # 存储错误信息
-        conversion_results[task_id] = {
-            "status": "failed",
-            "error": str(e)
-        }
+            # 处理每一页
+            for page_index in range(page_count):
+                # 渲染PDF页面为图像
+                page = pdf[page_index]
+                pil_image = page.render().to_pil()
+                
+                # 使用OCR识别文本
+                img_pred = predictors["recognition"](
+                    [pil_image],
+                    task_names=[TaskNames.ocr_with_boxes],
+                    det_predictor=predictors["detection"],
+                    highres_images=[pil_image],
+                    math_mode=True,
+                    return_words=True,
+                )[0]
+                
+                # 提取文本行
+                page_text = "\n\n".join([replace_fences(line.text) for line in img_pred.text_lines])
+                
+                # 添加页码标记
+                page_header = f"\n\n## 第 {page_index + 1} 页\n\n"
+                all_markdown.append(page_header + page_text)
+            
+            # 合并所有页面的Markdown内容
+            final_markdown = "\n".join(all_markdown)
+            
+            # 更新任务状态为完成
+            tasks[task_id] = {"status": "completed", "markdown": final_markdown, "error": None}
+        except Exception as e:
+            # 如果处理过程中出现错误，更新任务状态为失败
+            tasks[task_id] = {"status": "failed", "markdown": None, "error": str(e)}
+            print(f"处理PDF时出错: {e}")
 
 
 @app.on_event("startup")
 async def startup_event():
     """启动时加载模型"""
-    global predictors
+    global predictors, task_semaphore
     predictors = load_predictors()
     
     # 创建默认 API 密钥
     default_key = generate_api_key("default")
     print(f"\n默认 API 密钥已生成: {default_key}\n")
+    
+    # 初始化信号量用于限制并发任务数
+    task_semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+    print(f"最大并发任务数设置为: {MAX_CONCURRENT_TASKS}")
 
 
 @app.post("/convert", response_model=ConversionResult)
@@ -166,25 +173,23 @@ async def convert_pdf_to_markdown(
     
     返回任务ID，可以用于检查转换状态和获取结果
     """
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="只接受PDF文件")
+    # 检查文件类型
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="只支持PDF文件")
     
     # 读取文件内容
     pdf_bytes = await file.read()
     
     # 生成任务ID
-    task_id = f"task_{len(conversion_results) + 1}"
+    task_id = f"task_{len(tasks) + 1}"
     
     # 初始化任务状态
-    conversion_results[task_id] = {"status": "processing"}
+    tasks[task_id] = {"status": "processing", "markdown": None, "error": None}
     
-    # 添加后台任务
-    background_tasks.add_task(process_pdf, pdf_bytes, task_id)
+    # 在后台异步处理PDF
+    background_tasks.add_task(process_pdf, task_id, pdf_bytes)
     
-    return ConversionResult(
-        task_id=task_id,
-        status="processing"
-    )
+    return ConversionResult(task_id=task_id, status="processing")
 
 
 @app.get("/status/{task_id}", response_model=ConversionResult)
@@ -199,20 +204,20 @@ async def get_conversion_status(
     
     返回任务状态和结果（如果已完成）
     """
-    if task_id not in conversion_results:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    if task_id not in tasks:
+        raise HTTPException(status_code=404, detail=f"找不到任务ID: {task_id}")
     
-    result = conversion_results[task_id]
+    result = tasks[task_id]
     
     response = ConversionResult(
         task_id=task_id,
-        status=result["status"]
+        status=result.get("status", "unknown")
     )
     
-    if result["status"] == "completed":
-        response.markdown = result["markdown"]
-    elif result["status"] == "failed":
-        response.error = result["error"]
+    if result.get("status") == "completed":
+        response.markdown = result.get("markdown")
+    elif result.get("status") == "failed":
+        response.error = result.get("error")
     
     return response
 
@@ -248,5 +253,45 @@ async def list_api_keys(
     
     return {key: name for key, name in API_KEYS.items()}
 
+def parse_arguments():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description="xDAN Smart API - PDF 到 Markdown 转换服务")
+    parser.add_argument(
+        "--port", 
+        type=int, 
+        default=8000, 
+        help="API 服务端口号（默认：8000）"
+    )
+    parser.add_argument(
+        "--host", 
+        type=str, 
+        default="0.0.0.0", 
+        help="API 服务主机地址（默认：0.0.0.0）"
+    )
+    parser.add_argument(
+        "--max-concurrent", 
+        type=int, 
+        default=5, 
+        help="最大并发任务数（默认：5）"
+    )
+    parser.add_argument(
+        "--reload", 
+        action="store_true", 
+        help="启用代码热重载（开发模式）"
+    )
+    return parser.parse_args()
+
 if __name__ == "__main__":
-    uvicorn.run("pdf_to_markdown_api:app", host="0.0.0.0", port=8000, reload=True)
+    # 解析命令行参数
+    args = parse_arguments()
+    
+    # 设置全局最大并发数
+    MAX_CONCURRENT_TASKS = args.max_concurrent
+    
+    # 启动服务
+    uvicorn.run(
+        "pdf_to_markdown_api:app", 
+        host=args.host, 
+        port=args.port, 
+        reload=args.reload
+    )
