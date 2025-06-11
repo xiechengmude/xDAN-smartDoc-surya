@@ -1,62 +1,73 @@
-# 项目结构说明
+# xDAN Smart Doc Surya - 项目结构
 
-## 目录结构
+## 📁 项目目录结构
 
 ```
 xDAN-smartDoc-surya/
-├── main.py                 # 主API入口文件
-├── pyproject.toml         # uv项目配置
-├── requirements.txt       # 依赖列表
-├── setup_remote_dev.sh    # 远程环境配置脚本
-├── test_pdf_urls.md      # 测试PDF列表
-├── api/                  # API相关文件
-│   ├── pdf_to_markdown_api_simple.py  # 主API实现
-│   ├── pdf_to_markdown_api.py         # 完整版API
-│   ├── pdf_to_markdown_api_native.py  # 原生版API
-│   └── surya_config.py               # Surya配置
-├── scripts/              # 部署和管理脚本
-│   ├── remote_dev.sh     # 远程服务管理
-│   ├── local_tunnel.sh   # 本地端口转发
-│   ├── sync_to_remote.sh # 代码同步
-│   └── test_remote_api.py # API测试
-├── tests/                # 测试文件
-│   └── test_single_pdf.py
-├── docs/                 # 文档文件
-│   ├── README_remote_dev.md
-│   ├── PDF_API_文档.md
-│   └── ...
-├── surya/                # Surya OCR核心代码
-└── benchmark/            # 基准测试
+├── main.py                          # 🚀 主入口文件 (优化版API)
+├── api/                             # 📡 API实现目录
+│   ├── pdf_to_markdown_api.py       # 🎯 优化版PDF转Markdown API (主版本)
+│   └── surya_config.py              # ⚡ Surya性能优化配置
+├── scripts/                         # 🛠️ 管理脚本
+│   ├── remote_dev.sh                # 🌐 远程开发环境管理
+│   ├── local_tunnel.sh              # 🔗 SSH端口转发管理
+│   ├── sync_to_remote.sh            # 📤 代码同步到远程
+│   └── test_remote_api.py           # 🧪 远程API测试脚本
+├── tests/                           # 🧪 测试目录
+├── docs/                            # 📚 文档目录
+│   └── DEPLOYMENT_GUIDE.md          # 📖 部署指南
+├── surya/                           # 🔍 Surya OCR核心模块
+├── requirements.txt                 # 📦 Python依赖
+├── pyproject.toml                   # 🔧 uv项目配置
+├── setup_remote_dev.sh              # 🚀 一键远程环境配置
+└── test_pdf_urls.md                 # 📄 测试PDF URL列表
 ```
 
-## 主要文件说明
+## 🎯 核心文件说明
 
-### 核心文件
-- `main.py`: 主API入口，调用api/pdf_to_markdown_api_simple.py
-- `pyproject.toml`: uv项目配置，包含所有依赖
-- `setup_remote_dev.sh`: 一键配置远程开发环境
+### 主要API文件
+- **`api/pdf_to_markdown_api.py`** - 优化版PDF转Markdown API
+  - 支持页面范围选择 (`page_range`)
+  - 高性能批处理优化
+  - 智能并发控制
+  - 完整的API密钥管理
 
-### API文件 (api/)
-- `pdf_to_markdown_api_simple.py`: 推荐使用的简化版API
-- `pdf_to_markdown_api.py`: 功能完整的API版本
-- `pdf_to_markdown_api_native.py`: 使用Surya原生功能的版本
-- `surya_config.py`: Surya配置优化
+### 性能优化
+- **`api/surya_config.py`** - Surya性能优化配置
+  - 自动硬件检测和配置
+  - 批处理大小优化
+  - 编译加速设置
+  - 并发工作者优化
 
-### 管理脚本 (scripts/)
-- `remote_dev.sh`: 远程服务管理（启动/停止/重启/状态）
-- `local_tunnel.sh`: 本地端口转发管理
-- `sync_to_remote.sh`: 代码同步到远程服务器
-- `test_remote_api.py`: API功能测试
+### 部署和管理
+- **`main.py`** - 统一入口，直接启动优化版API
+- **`setup_remote_dev.sh`** - 一键配置远程GPU环境
+- **`scripts/remote_dev.sh`** - 远程服务管理 (启动/停止/重启/日志)
+- **`scripts/local_tunnel.sh`** - SSH端口转发管理
 
-### 测试文件 (tests/)
-- `test_single_pdf.py`: 单个PDF测试脚本
+## 🚀 快速启动
 
-### 文档 (docs/)
-- 各种项目文档和说明文件
+### 本地启动 (如果支持)
+```bash
+python main.py --port 8080 --max-concurrent 3
+```
 
-## 使用方法
+### 远程GPU启动
+```bash
+# 配置远程环境
+./setup_remote_dev.sh
 
-1. 配置远程环境: `./setup_remote_dev.sh`
-2. 启动远程服务: `./scripts/remote_dev.sh start`
-3. 建立端口转发: `./scripts/local_tunnel.sh`
-4. 访问API: http://localhost:8090
+# 启动远程服务
+./scripts/remote_dev.sh pdf_parser start
+
+# 建立端口转发
+./scripts/local_tunnel.sh pdf_parser 8080 8080
+```
+
+## 📈 性能特性
+
+- **智能批处理**: 根据硬件自动调整批处理大小
+- **编译优化**: GPU环境下自动启用模型编译加速
+- **并发控制**: 智能并发任务管理，避免资源竞争
+- **页面范围**: 支持灵活的页面选择 (`"0,5-10,20"`)
+- **硬件适配**: 自动检测并优化MPS/CUDA/CPU配置

@@ -30,7 +30,7 @@ try:
 except ImportError:
     print("⚠️ 未找到surya_config.py，使用默认配置")
     recommended_settings = {
-        "max_concurrent_tasks": 5,
+        "max_concurrent_tasks": 10,
         "default_batch_size": 32,
         "thread_pool_workers": 16
     }
@@ -51,7 +51,7 @@ predictors = None
 tasks = {}
 
 # 最大并发数（从性能优化配置获取，可通过命令行参数修改）
-MAX_CONCURRENT_TASKS = recommended_settings.get("max_concurrent_tasks", 5)
+MAX_CONCURRENT_TASKS = recommended_settings.get("max_concurrent_tasks", 20)
 
 # 信号量用于限制并发任务数
 task_semaphore = None
