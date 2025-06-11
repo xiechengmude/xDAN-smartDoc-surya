@@ -21,6 +21,48 @@ from surya.settings import settings
 # 设置环境变量以避免MPS问题
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
+# 根据设备类型设置最优批处理大小
+def set_optimal_batch_sizes():
+    """根据设备类型和可用内存设置最优的批处理大小"""
+    device = settings.TORCH_DEVICE_MODEL
+    
+    if device == "cuda":
+        # GPU 优化设置 - 根据文档建议的最优值
+        os.environ["RECOGNITION_BATCH_SIZE"] = "512"  # 20GB VRAM
+        os.environ["DETECTOR_BATCH_SIZE"] = "36"      # 16GB VRAM  
+        os.environ["LAYOUT_BATCH_SIZE"] = "32"        # 7GB VRAM
+        os.environ["TABLE_REC_BATCH_SIZE"] = "64"     # 10GB VRAM
+        
+        # 启用模型编译以提升性能
+        os.environ["COMPILE_ALL"] = "true"
+        
+        print(f"🚀 GPU 优化模式已启用 - 设备: {device}")
+        print("📊 批处理大小: RECOGNITION=512, DETECTOR=36, LAYOUT=32, TABLE_REC=64")
+        print("⚡ 模型编译已启用")
+        
+    elif device == "mps":
+        # Apple Silicon 优化设置
+        os.environ["RECOGNITION_BATCH_SIZE"] = "64"
+        os.environ["DETECTOR_BATCH_SIZE"] = "8"
+        os.environ["LAYOUT_BATCH_SIZE"] = "4"
+        os.environ["TABLE_REC_BATCH_SIZE"] = "8"
+        
+        print(f"🍎 Apple Silicon 优化模式已启用 - 设备: {device}")
+        print("📊 批处理大小: RECOGNITION=64, DETECTOR=8, LAYOUT=4, TABLE_REC=8")
+        
+    else:
+        # CPU 优化设置
+        os.environ["RECOGNITION_BATCH_SIZE"] = "32"
+        os.environ["DETECTOR_BATCH_SIZE"] = "6"
+        os.environ["LAYOUT_BATCH_SIZE"] = "4"
+        os.environ["TABLE_REC_BATCH_SIZE"] = "8"
+        
+        print(f"💻 CPU 优化模式已启用 - 设备: {device}")
+        print("📊 批处理大小: RECOGNITION=32, DETECTOR=6, LAYOUT=4, TABLE_REC=8")
+
+# 在导入 surya 之前设置环境变量
+set_optimal_batch_sizes()
+
 app = FastAPI(
     title="xDAN Smart API",
     description="高性能异步的 PDF 到 Markdown 转换服务，基于 xDAN Smart OCR",
@@ -33,8 +75,18 @@ predictors = None
 # 全局变量存储任务状态
 tasks = {}
 
-# 最大并发数（默认为 5，可通过命令行参数修改）
-MAX_CONCURRENT_TASKS = 5
+# 动态调整并发数（根据设备性能）
+def get_optimal_concurrent_tasks():
+    """根据设备类型返回最优并发任务数"""
+    device = settings.TORCH_DEVICE_MODEL
+    if device == "cuda":
+        return 10  # GPU 可以处理更多并发
+    elif device == "mps":
+        return 6   # Apple Silicon 中等并发
+    else:
+        return 3   # CPU 较少并发
+
+MAX_CONCURRENT_TASKS = get_optimal_concurrent_tasks()
 
 # 信号量用于限制并发任务数
 task_semaphore = None
@@ -101,9 +153,8 @@ def get_page_image(pdf_doc, page_num, dpi=settings.IMAGE_DPI_HIGHRES):
     return png.convert("RGB")
 
 
-async def process_pdf(task_id: str, pdf_bytes: bytes):
-    """异步处理PDF文件并转换为Markdown"""
-    # 使用信号量限制并发任务数
+async def process_pdf_batch(task_id: str, pdf_bytes: bytes):
+    """优化的批量PDF处理函数"""
     async with task_semaphore:
         try:
             # 更新任务状态为处理中
@@ -113,25 +164,35 @@ async def process_pdf(task_id: str, pdf_bytes: bytes):
             pdf = pypdfium2.PdfDocument(pdf_bytes)
             page_count = len(pdf)
             
-            # 存储所有页面的Markdown内容
-            all_markdown = []
+            # 批量渲染所有页面图像
+            print(f"📄 开始处理 {page_count} 页PDF文档 (任务ID: {task_id})")
             
-            # 处理每一页
+            # 批量渲染页面图像
+            all_images = []
             for page_index in range(page_count):
-                # 渲染PDF页面为图像
                 page = pdf[page_index]
                 pil_image = page.render().to_pil()
-                
-                # 使用OCR识别文本
-                img_pred = predictors["recognition"](
-                    [pil_image],
-                    task_names=[TaskNames.ocr_with_boxes],
-                    det_predictor=predictors["detection"],
-                    highres_images=[pil_image],
-                    math_mode=True,
-                    return_words=True,
-                )[0]
-                
+                all_images.append(pil_image)
+            
+            print(f"🖼️  已渲染 {len(all_images)} 页图像")
+            
+            # 批量OCR处理 - 这是关键优化点
+            # 为每个图像提供一个任务名称
+            task_names = [TaskNames.ocr_with_boxes] * len(all_images)
+            batch_predictions = predictors["recognition"](
+                all_images,
+                task_names=task_names,
+                det_predictor=predictors["detection"],
+                highres_images=all_images,
+                math_mode=True,
+                return_words=True,
+            )
+            
+            print(f"🔍 OCR 批量处理完成")
+            
+            # 处理OCR结果
+            all_markdown = []
+            for page_index, img_pred in enumerate(batch_predictions):
                 # 提取文本行
                 page_text = "\n\n".join([replace_fences(line.text) for line in img_pred.text_lines])
                 
@@ -144,25 +205,43 @@ async def process_pdf(task_id: str, pdf_bytes: bytes):
             
             # 更新任务状态为完成
             tasks[task_id] = {"status": "completed", "markdown": final_markdown, "error": None}
+            
+            print(f"✅ 任务完成 (ID: {task_id}) - 处理了 {page_count} 页")
+            
         except Exception as e:
             # 如果处理过程中出现错误，更新任务状态为失败
             tasks[task_id] = {"status": "failed", "markdown": None, "error": str(e)}
-            print(f"处理PDF时出错: {e}")
+            print(f"❌ 处理PDF时出错 (任务ID: {task_id}): {e}")
+
+
+# 保持向后兼容的函数名
+async def process_pdf(task_id: str, pdf_bytes: bytes):
+    """向后兼容的函数名"""
+    await process_pdf_batch(task_id, pdf_bytes)
 
 
 @app.on_event("startup")
 async def startup_event():
     """启动时加载模型"""
     global predictors, task_semaphore
+    
+    print("🚀 正在启动 xDAN Smart API...")
+    print(f"🔧 设备类型: {settings.TORCH_DEVICE_MODEL}")
+    print(f"⚙️  最大并发任务数: {MAX_CONCURRENT_TASKS}")
+    
+    # 加载预训练模型
+    print("📦 正在加载 Surya 模型...")
     predictors = load_predictors()
+    print("✅ 模型加载完成")
     
     # 创建默认 API 密钥
     default_key = generate_api_key("default")
-    print(f"\n默认 API 密钥已生成: {default_key}\n")
+    print(f"🔑 默认 API 密钥已生成: {default_key}")
     
     # 初始化信号量用于限制并发任务数
     task_semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
-    print(f"最大并发任务数设置为: {MAX_CONCURRENT_TASKS}")
+    
+    print("🎉 xDAN Smart API 启动完成！")
 
 
 @app.post("/convert", response_model=ConversionResult)
@@ -191,8 +270,8 @@ async def convert_pdf_to_markdown(
     # 初始化任务状态
     tasks[task_id] = {"status": "processing", "markdown": None, "error": None}
     
-    # 在后台异步处理PDF
-    background_tasks.add_task(process_pdf, task_id, pdf_bytes)
+    # 在后台异步处理PDF - 使用优化的批量处理函数
+    background_tasks.add_task(process_pdf_batch, task_id, pdf_bytes)
     
     return ConversionResult(task_id=task_id, status="processing")
 
@@ -228,8 +307,8 @@ async def convert_pdf_from_url(
         # 初始化任务状态
         tasks[task_id] = {"status": "processing", "markdown": None, "error": None}
         
-        # 在后台异步处理PDF
-        asyncio.create_task(process_pdf(task_id, pdf_bytes))
+        # 在后台异步处理PDF - 使用优化的批量处理函数
+        asyncio.create_task(process_pdf_batch(task_id, pdf_bytes))
         
         return ConversionResult(task_id=task_id, status="processing")
     except requests.RequestException as e:
@@ -317,8 +396,8 @@ def parse_arguments():
     parser.add_argument(
         "--max-concurrent", 
         type=int, 
-        default=5, 
-        help="最大并发任务数（默认：5）"
+        default=None, 
+        help="最大并发任务数（默认：根据设备自动调整）"
     )
     parser.add_argument(
         "--reload", 
@@ -331,10 +410,13 @@ if __name__ == "__main__":
     # 解析命令行参数
     args = parse_arguments()
     
-    # 设置全局最大并发数
-    MAX_CONCURRENT_TASKS = args.max_concurrent
+    # 如果用户指定了并发数，则覆盖自动检测的值
+    if args.max_concurrent is not None:
+        MAX_CONCURRENT_TASKS = args.max_concurrent
+        print(f"🔧 用户指定最大并发任务数: {MAX_CONCURRENT_TASKS}")
     
     # 启动服务
+    print(f"🌐 启动服务: http://{args.host}:{args.port}")
     uvicorn.run(
         "pdf_to_markdown_api:app", 
         host=args.host, 
