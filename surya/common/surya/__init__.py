@@ -1,4 +1,4 @@
-from typing import Optional, TypedDict
+from typing import Optional, TypedDict, Union
 import warnings
 from dataclasses import dataclass
 
@@ -131,7 +131,7 @@ class SuryaModel(S3DownloaderMixin, PreTrainedModel):
         self,
         pixel_values: torch.Tensor,
         grid_thw: torch.Tensor,
-        encoder_chunk_size: int | None,
+        encoder_chunk_size: Optional[int],
     ):
         # embed all images with the vision encoder after they have already been tiled and flattened into a single batch
         chunks = [0]
@@ -233,7 +233,7 @@ class SuryaModel(S3DownloaderMixin, PreTrainedModel):
     def get_2d_learned_embeddings(
         self,
         grid_thw,
-        device: str | torch.device = "cpu",
+        device: Union[str, torch.device] = "cpu",
         bbox_size: int = 256,
     ):
         all_embeddings = []

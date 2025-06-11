@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 
@@ -22,8 +22,8 @@ class DetectionModelLoader(ModelLoader):
 
     def model(
         self,
-        device: Optional[torch.device | str] = None,
-        dtype: Optional[torch.dtype | str] = None,
+        device: Optional[Union[torch.device, str]] = None,
+        dtype: Optional[Union[torch.dtype, str]] = None,
     ) -> EfficientViTForSemanticSegmentation:
         if device is None:
             device = settings.TORCH_DEVICE_MODEL
@@ -57,7 +57,7 @@ class DetectionModelLoader(ModelLoader):
 
     def processor(
         self,
-        device: Optional[torch.device | str] = None,
-        dtype: Optional[torch.dtype | str] = None,
+        device: Optional[Union[torch.device, str]] = None,
+        dtype: Optional[Union[torch.dtype, str]] = None,
     ) -> SegformerImageProcessor:
         return SegformerImageProcessor.from_pretrained(self.checkpoint)

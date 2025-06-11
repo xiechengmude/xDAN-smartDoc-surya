@@ -1,4 +1,4 @@
-from typing import Optional, Any
+from typing import Optional, Any, Union
 
 import torch
 
@@ -11,14 +11,14 @@ class ModelLoader:
 
     def model(
         self,
-        device: torch.device | str | None = settings.TORCH_DEVICE_MODEL,
-        dtype: Optional[torch.dtype | str] = settings.MODEL_DTYPE,
+        device: Union[torch.device, str, None] = settings.TORCH_DEVICE_MODEL,
+        dtype: Optional[Union[torch.dtype, str]] = settings.MODEL_DTYPE,
     ) -> Any:
         raise NotImplementedError()
 
     def processor(
         self,
-        device: torch.device | str | None = settings.TORCH_DEVICE_MODEL,
-        dtype: Optional[torch.dtype | str] = settings.MODEL_DTYPE,
+        device: Union[torch.device, str, None] = settings.TORCH_DEVICE_MODEL,
+        dtype: Optional[Union[torch.dtype, str]] = settings.MODEL_DTYPE,
     ) -> Any:
         raise NotImplementedError()

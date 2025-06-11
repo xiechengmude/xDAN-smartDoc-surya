@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Union
 
 import torch
 
@@ -14,7 +14,7 @@ configure_logging()
 
 
 def load_predictors(
-    device: str | torch.device | None = None, dtype: torch.dtype | str | None = None
+    device: Union[str, torch.device, None] = None, dtype: Union[torch.dtype, str, None] = None
 ) -> Dict[str, BasePredictor]:
     return {
         "layout": LayoutPredictor(device=device, dtype=dtype),

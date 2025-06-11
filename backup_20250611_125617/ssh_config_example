@@ -1,0 +1,26 @@
+# SSH配置示例
+# 将以下内容添加到您的 ~/.ssh/config 文件中
+
+Host pdf_parser
+    HostName 159.54.182.15
+    User root
+    Port 22
+    # 端口转发：将远程8090映射到本地8090
+    LocalForward 8090 localhost:8090
+    # 保持连接活跃
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    # 压缩传输
+    Compression yes
+    # 如果使用密钥认证，取消注释下面一行并指定密钥路径
+    # IdentityFile ~/.ssh/id_rsa
+
+# 如果您的服务器IP地址不是域名，请使用以下配置：
+# Host pdf_parser
+#     HostName 192.168.1.100  # 替换为实际IP地址
+#     User root
+#     Port 22
+#     LocalForward 8080 localhost:8080
+#     ServerAliveInterval 60
+#     ServerAliveCountMax 3
+#     Compression yes 

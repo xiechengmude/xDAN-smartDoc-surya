@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 import torch
 import torch.nn.functional as F
 
@@ -17,7 +17,7 @@ class BasePredictor:
     disable_tqdm: bool = settings.DISABLE_TQDM
     torch_dtype = settings.MODEL_DTYPE
 
-    def __init__(self, checkpoint: Optional[str] = None, device: torch.device | str | None = settings.TORCH_DEVICE_MODEL, dtype: Optional[torch.dtype | str] = None):
+    def __init__(self, checkpoint: Optional[str] = None, device: Union[torch.device, str, None] = settings.TORCH_DEVICE_MODEL, dtype: Optional[Union[torch.dtype, str]] = None):
         if dtype is None:
             dtype = self.torch_dtype
 
@@ -28,7 +28,7 @@ class BasePredictor:
         self.model = loader.model(device, dtype)
         self.processor = loader.processor()
 
-    def to(self, device_dtype: torch.device | str | None = None):
+    def to(self, device_dtype: Union[torch.device, str, None] = None):
         if self.model:
             self.model.to(device_dtype)
         else:

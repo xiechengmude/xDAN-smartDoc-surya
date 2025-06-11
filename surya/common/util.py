@@ -1,5 +1,5 @@
 import copy
-from typing import List
+from typing import List, Union
 import torch
 
 from surya.common.polygon import PolygonBox
@@ -62,7 +62,7 @@ def expand_bbox(bbox, expansion_factor=0.01):
     ]
 
 
-def is_flash_attn_2_supported(device: str | torch.device) -> bool:
+def is_flash_attn_2_supported(device: Union[str, torch.device]) -> bool:
     if not torch.cuda.is_available():
         return False
 

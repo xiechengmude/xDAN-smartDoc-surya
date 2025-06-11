@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 import PIL
 
 from surya.input.processing import open_pdf, get_page_images
@@ -16,7 +16,7 @@ def get_name_from_path(path):
     return os.path.basename(path).split(".")[0]
 
 
-def load_pdf(pdf_path, page_range: List[int] | None = None, dpi=settings.IMAGE_DPI):
+def load_pdf(pdf_path, page_range: Optional[List[int]] = None, dpi=settings.IMAGE_DPI):
     doc = open_pdf(pdf_path)
     last_page = len(doc)
 
@@ -40,7 +40,7 @@ def load_image(image_path):
 
 
 def load_from_file(
-    input_path, page_range: List[int] | None = None, dpi=settings.IMAGE_DPI
+    input_path, page_range: Optional[List[int]] = None, dpi=settings.IMAGE_DPI
 ):
     input_type = filetype.guess(input_path)
     if input_type and input_type.extension == "pdf":
@@ -50,7 +50,7 @@ def load_from_file(
 
 
 def load_from_folder(
-    folder_path, page_range: List[int] | None = None, dpi=settings.IMAGE_DPI
+    folder_path, page_range: Optional[List[int]] = None, dpi=settings.IMAGE_DPI
 ):
     image_paths = [
         os.path.join(folder_path, image_name)

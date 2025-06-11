@@ -123,7 +123,7 @@ print(response.json())
 
 **cURL**:
 ```bash
-curl -X POST -H "Content-Type: application/json" -H "X-API-Key: your_api_key_here" -d '{"url":"https://example.com/document.pdf"}' http://159.54.182.15:8080/convert-url
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: CKa2PINwE9Lz9hKevrdWIe_KIV-sOWrektidwr6p7so" -d '{"url":"https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf"}' http://159.54.182.15:8080/convert-url
 ```
 
 **Python**:
@@ -132,7 +132,7 @@ import requests
 
 url = "http://159.54.182.15:8080/convert-url"
 headers = {
-    "X-API-Key": "your_api_key_here",
+    "X-API-Key": "_EJraB0YaS0nu6FMSHf6-b8noj4CwoXtrN9nNjIoS3Q",
     "Content-Type": "application/json"
 }
 data = {"url": "https://example.com/document.pdf"}

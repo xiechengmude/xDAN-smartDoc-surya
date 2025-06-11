@@ -1,13 +1,14 @@
 import copy
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import numpy as np
-from pydantic import BaseModel, field_validator, computed_field
+from pydantic import BaseModel, field_validator, computed_field, Field
 import numbers
+import math
 
 
 class PolygonBox(BaseModel):
-    polygon: List[List[float]]
+    polygon: List[List[float]] = Field(description="Polygon coordinates")
     confidence: Optional[float] = None
 
     @field_validator("polygon", mode="before")
@@ -37,48 +38,57 @@ class PolygonBox(BaseModel):
             f"Input must be either a bbox [x_min, y_min, x_max, y_max] or a polygon with 4 corners [(x,y), (x,y), (x,y), (x,y)].  All values must be numeric. You passed {value} of type {type(value)}.  The first value is of type {type(value[0])}."
         )
 
-    @property
-    def height(self):
-        return self.bbox[3] - self.bbox[1]
-
-    @property
-    def width(self):
-        return self.bbox[2] - self.bbox[0]
-
-    @property
-    def area(self):
-        return self.width * self.height
-
     @computed_field
     @property
     def bbox(self) -> List[float]:
-        x_coords = [point[0] for point in self.polygon]
-        y_coords = [point[1] for point in self.polygon]
+        x_coords = [p[0] for p in self.polygon]
+        y_coords = [p[1] for p in self.polygon]
         return [min(x_coords), min(y_coords), max(x_coords), max(y_coords)]
 
-    def rescale(self, processor_size, image_size):
-        # Point is in x, y format
-        page_width, page_height = processor_size
+    @computed_field
+    @property
+    def area(self) -> float:
+        # Shoelace formula
+        n = len(self.polygon)
+        area = 0.0
+        for i in range(n):
+            j = (i + 1) % n
+            area += self.polygon[i][0] * self.polygon[j][1]
+            area -= self.polygon[j][0] * self.polygon[i][1]
+        return abs(area) / 2.0
 
-        img_width, img_height = image_size
-        width_scaler = img_width / page_width
-        height_scaler = img_height / page_height
+    @computed_field
+    @property
+    def width(self) -> float:
+        bbox = self.bbox
+        return bbox[2] - bbox[0]
 
-        for corner in self.polygon:
-            corner[0] = int(corner[0] * width_scaler)
-            corner[1] = int(corner[1] * height_scaler)
+    @computed_field
+    @property
+    def height(self) -> float:
+        bbox = self.bbox
+        return bbox[3] - bbox[1]
+
+    def rescale(self, scale_x: float, scale_y: float) -> "PolygonBox":
+        scaled_polygon = [[p[0] * scale_x, p[1] * scale_y] for p in self.polygon]
+        return PolygonBox(polygon=scaled_polygon)
 
     def round(self, divisor):
         for corner in self.polygon:
             corner[0] = int(corner[0] / divisor) * divisor
             corner[1] = int(corner[1] / divisor) * divisor
 
-    def fit_to_bounds(self, bounds):
-        new_corners = copy.deepcopy(self.polygon)
-        for corner in new_corners:
-            corner[0] = max(min(corner[0], bounds[2]), bounds[0])
-            corner[1] = max(min(corner[1], bounds[3]), bounds[1])
-        self.polygon = new_corners
+    def fit_to_bounds(self, bounds: List[float]) -> "PolygonBox":
+        # bounds = [min_x, min_y, max_x, max_y]
+        min_x, min_y, max_x, max_y = bounds
+        
+        fitted_polygon = []
+        for p in self.polygon:
+            x = max(min_x, min(max_x, p[0]))
+            y = max(min_y, min(max_y, p[1]))
+            fitted_polygon.append([x, y])
+        
+        return PolygonBox(polygon=fitted_polygon)
 
     def merge(self, other):
         x1 = min(self.bbox[0], other.bbox[0])
@@ -139,46 +149,69 @@ class PolygonBox(BaseModel):
 
         return new_poly
 
-    def intersection_area(self, other, x_margin=0, y_margin=0):
-        x_overlap = self.x_overlap(other, x_margin)
-        y_overlap = self.y_overlap(other, y_margin)
-        return x_overlap * y_overlap
+    def intersection_area(self, other: "PolygonBox") -> float:
+        from shapely.geometry import Polygon
+        poly1 = Polygon(self.polygon)
+        poly2 = Polygon(other.polygon)
+        intersection = poly1.intersection(poly2)
+        return intersection.area
 
-    def x_overlap(self, other, x_margin=0):
-        return max(
-            0,
-            min(self.bbox[2] + x_margin, other.bbox[2] + x_margin)
-            - max(self.bbox[0] - x_margin, other.bbox[0] - x_margin),
-        )
+    def intersection_pct(self, other: "PolygonBox") -> float:
+        intersection_area = self.intersection_area(other)
+        return intersection_area / self.area
 
-    def y_overlap(self, other, y_margin=0):
-        return max(
-            0,
-            min(self.bbox[3] + y_margin, other.bbox[3] + y_margin)
-            - max(self.bbox[1] - y_margin, other.bbox[1] - y_margin),
-        )
+    def union_area(self, other: "PolygonBox") -> float:
+        return self.area + other.area - self.intersection_area(other)
 
-    def intersection_pct(self, other, x_margin=0, y_margin=0):
-        assert 0 <= x_margin <= 1
-        assert 0 <= y_margin <= 1
-        if self.area == 0:
-            return 0
+    def iou(self, other: "PolygonBox") -> float:
+        intersection_area = self.intersection_area(other)
+        union_area = self.union_area(other)
+        return intersection_area / union_area if union_area > 0 else 0
 
-        if x_margin:
-            x_margin = int(min(self.width, other.width) * x_margin)
-        if y_margin:
-            y_margin = int(min(self.height, other.height) * y_margin)
+    def is_overlap_significant(self, other: "PolygonBox", threshold: float = 0.5) -> bool:
+        return self.intersection_pct(other) > threshold
 
-        intersection = self.intersection_area(other, x_margin, y_margin)
-        return intersection / self.area
+    def distance_to(self, other: "PolygonBox") -> float:
+        bbox1 = self.bbox
+        bbox2 = other.bbox
+        
+        # Calculate center points
+        center1 = [(bbox1[0] + bbox1[2]) / 2, (bbox1[1] + bbox1[3]) / 2]
+        center2 = [(bbox2[0] + bbox2[2]) / 2, (bbox2[1] + bbox2[3]) / 2]
+        
+        # Euclidean distance
+        return math.sqrt((center1[0] - center2[0])**2 + (center1[1] - center2[1])**2)
 
-    def shift(self, x_shift: float | None = None, y_shift: float | None = None):
-        if x_shift is not None:
-            for corner in self.polygon:
-                corner[0] += x_shift
-        if y_shift is not None:
-            for corner in self.polygon:
-                corner[1] += y_shift
+    def merge_with(self, other: "PolygonBox") -> "PolygonBox":
+        bbox1 = self.bbox
+        bbox2 = other.bbox
+        
+        # Create merged bounding box
+        merged_bbox = [
+            min(bbox1[0], bbox2[0]),  # min x
+            min(bbox1[1], bbox2[1]),  # min y
+            max(bbox1[2], bbox2[2]),  # max x
+            max(bbox1[3], bbox2[3])   # max y
+        ]
+        
+        # Convert back to polygon (rectangle)
+        merged_polygon = [
+            [merged_bbox[0], merged_bbox[1]],  # top-left
+            [merged_bbox[2], merged_bbox[1]],  # top-right
+            [merged_bbox[2], merged_bbox[3]],  # bottom-right
+            [merged_bbox[0], merged_bbox[3]]   # bottom-left
+        ]
+        
+        return PolygonBox(polygon=merged_polygon)
+
+    def shift(self, x_shift: Optional[float] = None, y_shift: Optional[float] = None):
+        if x_shift is None:
+            x_shift = 0
+        if y_shift is None:
+            y_shift = 0
+        
+        shifted_polygon = [[p[0] + x_shift, p[1] + y_shift] for p in self.polygon]
+        return PolygonBox(polygon=shifted_polygon)
 
     def clamp(self, bbox: List[float]):
         for corner in self.polygon:
@@ -189,13 +222,32 @@ class PolygonBox(BaseModel):
     def center(self):
         return [(self.bbox[0] + self.bbox[2]) / 2, (self.bbox[1] + self.bbox[3]) / 2]
 
-    def distance(self, other):
-        center = self.center
-        other_center = other.center
-
-        return (
-            (center[0] - other_center[0]) ** 2 + (center[1] - other_center[1]) ** 2
-        ) ** 0.5
-
     def __hash__(self):
         return hash(tuple(self.bbox))
+
+    def to_dict(self) -> dict:
+        return {
+            "polygon": self.polygon,
+            "bbox": self.bbox,
+            "area": self.area,
+            "width": self.width,
+            "height": self.height
+        }
+
+    @classmethod
+    def from_bbox(cls, bbox: List[float]) -> "PolygonBox":
+        # bbox = [x1, y1, x2, y2]
+        polygon = [
+            [bbox[0], bbox[1]],  # top-left
+            [bbox[2], bbox[1]],  # top-right
+            [bbox[2], bbox[3]],  # bottom-right
+            [bbox[0], bbox[3]]   # bottom-left
+        ]
+        return cls(polygon=polygon)
+
+    def __str__(self) -> str:
+        bbox = self.bbox
+        return f"PolygonBox(bbox=[{bbox[0]:.1f}, {bbox[1]:.1f}, {bbox[2]:.1f}, {bbox[3]:.1f}], area={self.area:.1f})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
